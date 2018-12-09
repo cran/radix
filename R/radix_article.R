@@ -16,7 +16,7 @@
 #' @export
 radix_article <- function(toc = FALSE,
                           toc_depth = 3,
-                          fig_width = 6,
+                          fig_width = 6.5,
                           fig_height = 4,
                           fig_retina = 2,
                           fig_caption = TRUE,
@@ -67,6 +67,7 @@ radix_article <- function(toc = FALSE,
   knitr_options$opts_chunk$message <- FALSE
   knitr_options$opts_chunk$comment <- NA
   knitr_options$opts_chunk$R.options <- list(width = 70)
+  knitr_options$opts_knit$bookdown.internal.label <- TRUE
   knitr_options$opts_hooks <- list()
   knitr_options$opts_hooks$preview <- knitr_preview_hook
   knitr_options$knit_hooks <- list()
@@ -75,22 +76,6 @@ radix_article <- function(toc = FALSE,
   # shared variables
   site_config <- NULL
   encoding <- NULL
-
-  eng_yaml <- function(options) {
-    if (identical(options$label, "listing")) {
-      knitr::knit_meta_add(list(
-        structure(class = "radix_listing", list(
-          code = options$code
-        ))
-      ))
-    }
-    NULL
-  }
-
-  # pre-knit
-  pre_knit <- function(input, ...)  {
-    knitr::knit_engines$set(yaml = eng_yaml)
-  }
 
   # post-knit
   post_knit <- function(metadata, input_file, runtime, encoding, ...) {
@@ -132,6 +117,9 @@ radix_article <- function(toc = FALSE,
     # make copy of metdata before transforming
     embedable_metadata <- metadata
 
+    # fixup author for embedding
+    embedable_metadata$author <- fixup_author(embedable_metadata$author)
+
     # transform configuration
     transformed <-  transform_configuration(
       file = output_file,
@@ -161,20 +149,14 @@ radix_article <- function(toc = FALSE,
     # resolve listing
     listing <- list()
 
-    # get any listing we have from knit_meta
-    yaml_listing <- knitr::knit_meta(class = "radix_listing", clean = TRUE)
-
     # special handling for listing pages
     if (!is.null(metadata$listing)) {
-
-      # resolving listing feed and html
-      listing <- resolve_listing(input_file, site_config, metadata)
-
-    } else if (length(yaml_listing) > 0) {
-
-      # resolve yaml based listing
-      listing <- resolve_yaml_listing(input_file, site_config, metadata, yaml_listing)
-
+      # can be either a character vector with a collection name or a list
+      # of articles by collection
+      if (is.list(metadata$listing))
+        listing <- resolve_yaml_listing(input_file, site_config, metadata, metadata$listing)
+      else
+        listing <- resolve_listing(input_file, site_config, metadata)
     }
 
     if (length(listing) > 0) {
@@ -234,7 +216,6 @@ radix_article <- function(toc = FALSE,
   }
 
   on_exit <- function() {
-    knitr::knit_engines$set(yaml = NULL)
     validate_rstudio_version()
   }
 
@@ -246,11 +227,9 @@ radix_article <- function(toc = FALSE,
                             args = args),
     keep_md = keep_md,
     clean_supporting = self_contained,
-    pre_knit = pre_knit,
     post_knit = post_knit,
     pre_processor = pre_processor,
-    post_processor = render_collection_article_post_processor(function() encoding,
-                                                              self_contained),
+    post_processor = radix_article_post_processor(function() encoding, self_contained),
     on_exit = on_exit,
     base_format = html_document_base(
       smart = smart,
@@ -313,7 +292,7 @@ validate_pandoc_version <- function() {
                      "Please update at:",
                      "https://www.rstudio.com/rstudio/download/preview/")
       } else {
-        msg <- paste("Radix requires Pandoc v2.0 or greator.",
+        msg <- paste("Radix requires Pandoc v2.0 or greater",
                      "Please update at:",
                       "https://github.com/jgm/pandoc/releases/latest")
       }

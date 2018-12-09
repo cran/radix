@@ -140,9 +140,14 @@ render_collection <- function(site_dir, site_config, collection,
 
 
 
-render_collection_article_post_processor <- function(encoding_fn, self_contained) {
+radix_article_post_processor <- function(encoding_fn, self_contained) {
 
   function(metadata, input_file, output_file, clean, verbose) {
+
+    # resolve bookdown-style figure cross references
+    html_output <- xfun::read_utf8(output_file)
+    html_output <- bookdown::resolve_refs_html(html_output, global = TRUE)
+    xfun::write_utf8(html_output, output_file)
 
     # resolve encoding
     encoding <- encoding_fn()
@@ -251,6 +256,20 @@ publish_collection_article_to_site <- function(site_dir, site_config, encoding,
   output_file
 }
 
+
+read_articles_json <- function(articles_file, site_dir, site_config, collection) {
+  # read the index. if there is an error (possible if the .json file e.g. is invalid
+  # due to merge conflicts) then re-read the articles directly from the collection
+  articles <- NULL
+  if (file.exists(articles_file))
+    articles <- tryCatch(read_json(articles_file), error = function(e) { NULL })
+  if (is.null(articles)) {
+    articles <- enumerate_collection(site_dir, site_config, collection)[["articles"]]
+    articles <- to_article_info(site_dir, articles)
+  }
+  articles
+}
+
 update_collection_listing <- function(site_dir, site_config, collection, article, encoding) {
 
   # path to collection index
@@ -261,8 +280,8 @@ update_collection_listing <- function(site_dir, site_config, collection, article
   if (!file.exists(collection_index))
     return()
 
-  # read the index
-  articles <- read_json(collection_index)
+  # read the index.
+  articles <- read_articles_json(collection_index, site_dir, site_config, collection)
 
   # either edit the index or add a new entry at the appropriate place
   article_info <- article_info(site_dir, article)
@@ -304,6 +323,7 @@ update_collection_listing <- function(site_dir, site_config, collection, article
       # update it
       listing <- generate_listing(
         input_file,
+        metadata,
         site_config,
         collection,
         articles
@@ -416,7 +436,7 @@ render_collection_article <- function(site_dir, site_config, collection, article
   )
 
   # substitute meta tags
-  metadata_html <- metadata_html(site_config, metadata, self_contained = FALSE)
+  metadata_html <- metadata_html(site_config, metadata, self_contained = FALSE, offset = offset)
   index_content <- fill_placeholder(index_content,
                                     "meta_tags",
                                     doRenderTags(metadata_html))
@@ -427,7 +447,7 @@ render_collection_article <- function(site_dir, site_config, collection, article
                                     doRenderTags(front_matter_html(metadata)))
 
   # substitue appendices
-  appendices_html <- appendices_after_body_html(index_html, site_config, metadata)
+  appendices_html <- appendices_after_body_html(article$path, site_config, metadata)
   index_content <- fill_placeholder(index_content,
                                     "appendices",
                                     doRenderTags(appendices_html))
@@ -481,13 +501,23 @@ render_collection_article <- function(site_dir, site_config, collection, article
 
 article_footer_html <- function(site_dir, site_config, collection, article) {
 
-  # get disqus and share
   base_url <- site_config[["base_url"]]
-  discuss_shortname <- collection[["disqus"]]
+
+  disqus_options <- collection[["disqus"]]
+  disqus_class <- NULL
+  if (is.list(disqus_options)) {
+    disqus_shortname <- disqus_options[["shortname"]]
+    if (identical(not_null(disqus_options[["hidden"]], TRUE), TRUE))
+      disqus_class <- "hidden"
+  } else {
+    disqus_shortname <- disqus_options
+    disqus_class <- "hidden"
+  }
+
   share_services <- collection[["share"]]
 
   # validate base_url if needed
-  if (!is.null(discuss_shortname) && is.null(base_url))
+  if (!is.null(disqus_shortname) && is.null(base_url))
     stop("You must specify a base_url when including disqus comments.", call. = FALSE)
   if (!is.null(share_services) && is.null(base_url))
     stop("You must specify a base_url when including sharing links", call. = FALSE)
@@ -544,7 +574,7 @@ article_footer_html <- function(site_dir, site_config, collection, article) {
   # disqus
   disqus <- NULL
   disqus_script <- NULL
-  if (!is.null(discuss_shortname)) {
+  if (!is.null(disqus_shortname)) {
 
     disqus <- tags$span(class = "disqus-comments",
       tag("i", list(class = "fas fa-comments")),
@@ -556,10 +586,10 @@ article_footer_html <- function(site_dir, site_config, collection, article) {
     disqus_script <- tagList(
 
       tags$script(id = "dsq-count-scr",
-                  src = sprintf("https://%s.disqus.com/count.js", discuss_shortname),
+                  src = sprintf("https://%s.disqus.com/count.js", disqus_shortname),
                   async = NA),
 
-      tags$div(id = "disqus_thread", class = "hidden"),
+      tags$div(id = "disqus_thread", class = disqus_class),
 
       tags$script(HTML(paste(sep = "\n",
           sprintf(paste(sep = "\n",
@@ -569,7 +599,7 @@ article_footer_html <- function(site_dir, site_config, collection, article) {
               "};"), article_url, article_id),
           "(function() {",
           "  var d = document, s = d.createElement('script');",
-          sprintf("  s.src = 'https://%s.disqus.com/embed.js';", discuss_shortname),
+          sprintf("  s.src = 'https://%s.disqus.com/embed.js';", disqus_shortname),
           "  s.setAttribute('data-timestamp', +new Date());",
           "  (d.head || d.body).appendChild(s);",
           "})();\n"

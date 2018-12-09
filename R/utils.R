@@ -77,6 +77,15 @@ date_as_iso_8601 <- function(date, date_only = FALSE) {
   }
 }
 
+fixup_author <- function(author) {
+  if (is.null(author))
+    NULL
+  else if (!is.list(author))
+    lapply(author, function(x) list(name = x))
+  else
+    author
+}
+
 fixup_iso_timezone <- function(time) {
   sub("(\\d{2})(\\d{2})$", "\\1:\\2", time)
 }
@@ -135,7 +144,7 @@ url_path <- function(...) {
 }
 
 is_url <- function(x) {
-  grepl("^https?://", x)
+  grepl("^https?://", x) || grepl("^mailto\\:", x)
 }
 
 
@@ -265,7 +274,12 @@ move_directory <- function(from_dir, to_dir) {
 }
 
 download_file <- function(url, destfile, quiet = TRUE) {
-  downloader::download(url, destfile = destfile, mode = "wb", quiet = quiet, cacheOK = FALSE)
+  if (is_url(url))
+    downloader::download(url, destfile = destfile, mode = "wb", quiet = quiet, cacheOK = FALSE)
+  else if (file.exists(url))
+    file.copy(url, destfile, overwrite = TRUE)
+  else
+    stop("Specified file does not exist: ", url)
 }
 
 eval_metadata <- function(metadata) {

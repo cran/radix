@@ -38,7 +38,7 @@ transform_metadata <- function(file, site_config, collection_config, metadata, a
 
   # validate title
   if (is.null(metadata$title))
-    stop("You must provide a title for Radix articles", call. = FALSE)
+    metadata$title <- "Untitled"
 
   # trim ws from description
   if (!is.null(metadata$description))
@@ -170,8 +170,7 @@ transform_metadata <- function(file, site_config, collection_config, metadata, a
   if (!is.null(metadata$author)) {
 
     # convert to list if necessary
-    if (!is.list(metadata$author))
-      metadata$author <- lapply(metadata$author, function(x) list(name = x))
+    metadata$author <- fixup_author(metadata$author)
 
     # compute first and last name
     metadata$author <- authors_with_first_and_last_names(metadata$author)
@@ -207,7 +206,16 @@ transform_metadata <- function(file, site_config, collection_config, metadata, a
   metadata
 }
 
-metadata_html <- function(site_config, metadata, self_contained) {
+metadata_html <- function(site_config, metadata, self_contained, offset = NULL) {
+
+  offset_href <- function(href) {
+    if (is.null(href))
+      NULL
+    else if (!is.null(offset) && !is_url(href))
+      file.path(offset, href)
+    else
+      href
+  }
 
   # title
   title <- list()
@@ -243,7 +251,7 @@ metadata_html <- function(site_config, metadata, self_contained) {
     links[[length(links) + 1]] <- tags$link(
       rel = "icon",
       type = mime::guess_type(metadata$favicon),
-      href = metadata$favicon
+      href = offset_href(metadata$favicon)
     )
   }
 
@@ -574,6 +582,7 @@ extract_embedded_metadata <- function(file) {
   metadata <- extract_embedded_json(file, "radix-rmarkdown-metadata")
   if (!is.null(metadata$description))
     metadata$description <- trimws(metadata$description)
+  metadata$author <- fixup_author(metadata$author)
   metadata
 }
 
@@ -656,6 +665,11 @@ discover_preview <- function(file) {
 
   # if file is as the top-level of a site then bail
   if (file.exists(file.path(dirname(file), "_site.yml")))
+    return(NULL)
+
+  # if the file doesn't exist then bail (could be b/c we are being rendered
+  # in RSC with an intermediates_dir)
+  if (!file.exists(file))
     return(NULL)
 
   # open connection to file

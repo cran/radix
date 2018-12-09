@@ -11,6 +11,7 @@ resolve_listing <- function(input_file, site_config, metadata) {
   # generate listing
   generate_listing(
     input_file,
+    metadata,
     site_config,
     collection,
     articles
@@ -19,23 +20,23 @@ resolve_listing <- function(input_file, site_config, metadata) {
 
 resolve_yaml_listing <- function(input_file, site_config, metadata, yaml_listing) {
 
-  yaml_listing <- yaml::yaml.load(yaml_listing[[1]]$code)
+  site_dir <- find_site_dir(input_file)
 
   listing_articles <- list()
 
   for (collection in names(yaml_listing)) {
 
-    articles <- yaml_listing[[collection]]
+    collection <- site_collections(site_dir, site_config)[[collection]]
 
-    all_articles <- read_json(
-      file.path(dirname(input_file),
-                site_config$output_dir,
-                collection,
-                file_with_ext(collection, "json"))
-    )
+    articles <- yaml_listing[[collection$name]]
+
+    articles_file <- file.path(as_collection_dir(dirname(input_file), collection$name),
+                               file_with_ext(collection$name, "json"))
+
+    all_articles <- read_articles_json(articles_file, site_dir, site_config, collection)
 
     articles <- lapply(articles, function(article) {
-      path <- paste0(collection, "/", article, "/")
+      path <- paste0(collection$name, "/", article, "/")
       for (article in all_articles) {
         if (identical(path, article$path))
           return(article)
@@ -56,6 +57,7 @@ resolve_yaml_listing <- function(input_file, site_config, metadata, yaml_listing
 }
 
 generate_listing <- function(input_file,
+                             metadata,
                              site_config,
                              collection,
                              articles) {
@@ -79,7 +81,7 @@ generate_listing <- function(input_file,
   feed_xml <- write_feed_xml(feed_xml, site_config, collection, feed_articles)
 
   # generate html
-  listing_html <- article_listing_html(site_dir, collection, articles)
+  listing_html <- article_listing_html(site_dir, metadata, collection, articles)
   html <- html_file(listing_html)
 
   # return feed and listing html
@@ -90,7 +92,7 @@ generate_listing <- function(input_file,
 }
 
 
-article_listing_html <- function(site_dir, collection, articles) {
+article_listing_html <- function(site_dir, metadata, collection, articles) {
 
   # detect whether we are showing categories in the sidebar
   categories <- not_null(collection[["categories"]], TRUE)
@@ -106,7 +108,7 @@ article_listing_html <- function(site_dir, collection, articles) {
 
   # generate html
   html_for_articles(articles,
-                    caption = NULL,
+                    caption = metadata$title,
                     categories = categories,
                     subscription_html = subscription_html)
 }
